@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "obs-face-filter",
+      "name": "lobster-face-filter",
       "dependencies": {
         "@mediapipe/tasks-vision": "^0.10.32",
         "three": "^0.183.2",
