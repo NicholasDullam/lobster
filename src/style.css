@@ -68,6 +68,33 @@ body {
   display: none;
 }
 
+#debug-controls-panel {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  width: min(240px, calc(100% - 20px));
+  background: rgba(18, 30, 48, 0.82);
+  border: 1px solid rgba(145, 198, 255, 0.72);
+  border-radius: 6px;
+  color: #d8ecff;
+  font: 12px/1.35 monospace;
+  padding: 10px;
+  z-index: 4;
+  pointer-events: auto;
+}
+
+#debug-controls-panel .title {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+#debug-controls-panel .toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
 #cutout-debug-panel {
   position: absolute;
   right: 10px;

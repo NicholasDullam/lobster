@@ -614,6 +614,78 @@ function setupDebugOverlay(): DebugOverlay | null {
   return { canvas: debugCanvas, context, status };
 }
 
+type DebugRenderToggles = {
+  showAnchor: boolean;
+  showFaceShaderHandle: boolean;
+  showFaceShader: boolean;
+};
+
+/**
+ * Creates a compact debug controls panel for runtime visualization toggles.
+ *
+ * @param initialToggles - Initial state used to populate checkbox values
+ * @param onTogglesChanged - Invoked whenever any toggle value changes
+ * @returns Mutable toggles state, or null when debug mode is disabled
+ */
+function setupDebugControls(
+  initialToggles: DebugRenderToggles,
+  onTogglesChanged: (toggles: DebugRenderToggles) => void,
+): DebugRenderToggles | null {
+  if (!DEBUG_ENABLED) {
+    return null;
+  }
+
+  const panel = document.createElement("div");
+  panel.id = "debug-controls-panel";
+  panel.innerHTML = `
+    <div class="title">Debug Controls</div>
+    <label class="toggle"><input id="debug-toggle-anchor" type="checkbox"> Show anchor</label>
+    <label class="toggle"><input id="debug-toggle-face-shader-handle" type="checkbox"> Show face shader handle</label>
+    <label class="toggle"><input id="debug-toggle-face-shader" type="checkbox"> Enable face shader</label>
+  `;
+  document.body.appendChild(panel);
+
+  const anchorInput = panel.querySelector<HTMLInputElement>("#debug-toggle-anchor");
+  const handleInput = panel.querySelector<HTMLInputElement>(
+    "#debug-toggle-face-shader-handle",
+  );
+  const shaderInput = panel.querySelector<HTMLInputElement>(
+    "#debug-toggle-face-shader",
+  );
+  if (!anchorInput || !handleInput || !shaderInput) {
+    return null;
+  }
+
+  const toggles: DebugRenderToggles = { ...initialToggles };
+  const refresh = (): void => {
+    anchorInput.checked = toggles.showAnchor;
+    handleInput.checked = toggles.showFaceShaderHandle;
+    shaderInput.checked = toggles.showFaceShader;
+  };
+  const emit = (): void => {
+    onTogglesChanged({ ...toggles });
+  };
+
+  anchorInput.addEventListener("change", () => {
+    toggles.showAnchor = anchorInput.checked;
+    emit();
+    refresh();
+  });
+  handleInput.addEventListener("change", () => {
+    toggles.showFaceShaderHandle = handleInput.checked;
+    emit();
+    refresh();
+  });
+  shaderInput.addEventListener("change", () => {
+    toggles.showFaceShader = shaderInput.checked;
+    emit();
+    refresh();
+  });
+
+  refresh();
+  return toggles;
+}
+
 /**
  * Draws a labeled landmark marker in screen space for debug visualization.
  *
@@ -664,6 +736,7 @@ function renderDebugOverlay(
   faceAnchor: FaceAnchor | null,
   anchorVisible: boolean,
   sourceMode: TrackingSource["mode"],
+  showDebugPoints: boolean,
   projectionContext?: ProjectionContext,
 ): void {
   const { canvas, context, status } = debugOverlay;
@@ -704,99 +777,101 @@ function renderDebugOverlay(
     );
     return { ...landmark, x: point.x, y: point.y };
   };
-  drawDebugPoint(
-    context,
-    width,
-    height,
-    projectPoseDebugPoint(leftShoulder),
-    "#33d1ff",
-    "L shoulder",
-  );
-  drawDebugPoint(
-    context,
-    width,
-    height,
-    projectPoseDebugPoint(rightShoulder),
-    "#33d1ff",
-    "R shoulder",
-  );
-  drawDebugPoint(
-    context,
-    width,
-    height,
-    projectPoseDebugPoint(shoulderCenter),
-    "#f8dc53",
-    "Shoulder C",
-  );
-  drawDebugPoint(
-    context,
-    width,
-    height,
-    projectPoseDebugPoint(hipCenter),
-    "#ff9b53",
-    "Hip C",
-  );
-  drawDebugPoint(
-    context,
-    width,
-    height,
-    projectPoseDebugPoint(chestCenter),
-    "#7cff74",
-    "Chest C",
-  );
-  if (leftHip) {
+  if (showDebugPoints) {
     drawDebugPoint(
       context,
       width,
       height,
-      projectPoseDebugPoint(leftHip),
-      "#ff6b6b",
-      "L hip",
-    );
-  }
-  if (rightHip) {
-    drawDebugPoint(
-      context,
-      width,
-      height,
-      projectPoseDebugPoint(rightHip),
-      "#ff6b6b",
-      "R hip",
-    );
-  }
-  if (faceAnchor) {
-    drawDebugPoint(
-      context,
-      width,
-      height,
-      faceAnchor.debug.leftEye,
-      "#57b8ff",
-      "L eye",
+      projectPoseDebugPoint(leftShoulder),
+      "#33d1ff",
+      "L shoulder",
     );
     drawDebugPoint(
       context,
       width,
       height,
-      faceAnchor.debug.rightEye,
-      "#57b8ff",
-      "R eye",
+      projectPoseDebugPoint(rightShoulder),
+      "#33d1ff",
+      "R shoulder",
     );
     drawDebugPoint(
       context,
       width,
       height,
-      faceAnchor.debug.noseTip,
-      "#9cff70",
-      "Nose",
+      projectPoseDebugPoint(shoulderCenter),
+      "#f8dc53",
+      "Shoulder C",
     );
     drawDebugPoint(
       context,
       width,
       height,
-      faceAnchor.debug.anchorPoint,
-      "#ffd84a",
-      "Face A",
+      projectPoseDebugPoint(hipCenter),
+      "#ff9b53",
+      "Hip C",
     );
+    drawDebugPoint(
+      context,
+      width,
+      height,
+      projectPoseDebugPoint(chestCenter),
+      "#7cff74",
+      "Chest C",
+    );
+    if (leftHip) {
+      drawDebugPoint(
+        context,
+        width,
+        height,
+        projectPoseDebugPoint(leftHip),
+        "#ff6b6b",
+        "L hip",
+      );
+    }
+    if (rightHip) {
+      drawDebugPoint(
+        context,
+        width,
+        height,
+        projectPoseDebugPoint(rightHip),
+        "#ff6b6b",
+        "R hip",
+      );
+    }
+    if (faceAnchor) {
+      drawDebugPoint(
+        context,
+        width,
+        height,
+        faceAnchor.debug.leftEye,
+        "#57b8ff",
+        "L eye",
+      );
+      drawDebugPoint(
+        context,
+        width,
+        height,
+        faceAnchor.debug.rightEye,
+        "#57b8ff",
+        "R eye",
+      );
+      drawDebugPoint(
+        context,
+        width,
+        height,
+        faceAnchor.debug.noseTip,
+        "#9cff70",
+        "Nose",
+      );
+      drawDebugPoint(
+        context,
+        width,
+        height,
+        faceAnchor.debug.anchorPoint,
+        "#ffd84a",
+        "Face A",
+      );
+    }
   }
 
   status.textContent =
@@ -1208,6 +1283,11 @@ async function main(): Promise<void> {
   );
   debugMarker.visible = DEBUG_ENABLED;
   scene.add(debugMarker);
+  const debugRenderToggles: DebugRenderToggles = {
+    showAnchor: true,
+    showFaceShaderHandle: true,
+    showFaceShader: queryParams.get("filterDebugFaceShader") !== "0",
+  };
 
   const gltf = await new GLTFLoader().loadAsync(MODEL_URL);
   const model = gltf.scene;
@@ -1221,6 +1301,7 @@ async function main(): Promise<void> {
     ? {
         visualizeOcclusion:
           queryParams.get("filterDebugOcclusion") !== "0",
+        shaderEnabled: debugRenderToggles.showFaceShader,
         translucentMeshOpacity: THREE.MathUtils.clamp(
           Number(queryParams.get("filterDebugSuitOpacity") ?? "0.35") || 0.35,
           0.05,
@@ -1320,12 +1401,52 @@ async function main(): Promise<void> {
     };
     setupCutoutDebugPanel(
       selectedEntry,
-      cutoutDebugState ?? { visualizeOcclusion: true, translucentMeshOpacity: 0.35 },
+      cutoutDebugState ?? {
+        visualizeOcclusion: true,
+        shaderEnabled: true,
+        translucentMeshOpacity: 0.35,
+      },
       onCutoutUpdated,
       onCutoutDebugStateUpdated,
     );
     enableCutoutDragging(canvas, camera, selectedEntry, onCutoutUpdated);
   }
+
+  const syncFaceShaderToggle = (): void => {
+    model.traverse((node) => {
+      if (!(node instanceof THREE.Mesh)) {
+        return;
+      }
+      const materials = Array.isArray(node.material)
+        ? node.material
+        : [node.material];
+      for (const material of materials) {
+        updateCutoutDebugState(material, {
+          visualizeOcclusion: cutoutDebugState?.visualizeOcclusion ?? false,
+          shaderEnabled: debugRenderToggles.showFaceShader,
+          translucentMeshOpacity: cutoutDebugState?.translucentMeshOpacity ?? 0,
+        });
+      }
+    });
+  };
+  const syncFaceShaderHandleToggle = (): void => {
+    for (const entry of cutoutDebugEntries) {
+      entry.boundsHelper.visible = debugRenderToggles.showFaceShaderHandle;
+      entry.centerHelper.visible = debugRenderToggles.showFaceShaderHandle;
+    }
+  };
+  syncFaceShaderToggle();
+  syncFaceShaderHandleToggle();
+  setupDebugControls(debugRenderToggles, (toggles) => {
+    debugRenderToggles.showAnchor = toggles.showAnchor;
+    debugRenderToggles.showFaceShaderHandle = toggles.showFaceShaderHandle;
+    debugRenderToggles.showFaceShader = toggles.showFaceShader;
+    if (cutoutDebugState) {
+      cutoutDebugState.shaderEnabled = toggles.showFaceShader;
+    }
+    syncFaceShaderToggle();
+    syncFaceShaderHandleToggle();
+  });
 
   const tick = (): void => {
     const now = performance.now();
@@ -1548,10 +1669,6 @@ async function main(): Promise<void> {
         smoothedPos.lerp(worldPos, 1 - BODY_POS_SMOOTH);
       }
       anchor.position.copy(smoothedPos);
-      if (DEBUG_ENABLED) {
-        debugMarker.visible = true;
-        debugMarker.position.copy(smoothedPos);
-      }
 
       smoothedScale = THREE.MathUtils.lerp(
         smoothedScale,
@@ -1564,6 +1681,12 @@ async function main(): Promise<void> {
         smoothedQuat.slerp(anchorRotation, 1 - BODY_ROT_SMOOTH);
       }
       anchor.quaternion.copy(smoothedQuat);
+      if (DEBUG_ENABLED) {
+        debugMarker.visible = debugRenderToggles.showAnchor;
+        // Show the core blended anchor target (before cutout-centering shift)
+        // so the marker stays centered relative to body/face tracking intent.
+        debugMarker.position.copy(baseWorldPos);
+      }
       anchor.visible = true;
       lastPoseSeenAt = now;
       hasSeenPose = true;
@@ -1584,6 +1707,7 @@ async function main(): Promise<void> {
         faceAnchor,
         anchor.visible,
         trackingSource.mode,
+        true,
         projectionContext,
       );
     }

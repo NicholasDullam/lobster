@@ -99,6 +99,7 @@ type CutoutMaterialState = {
   debug: {
     visualize: { value: number };
     translucentOpacity: { value: number };
+    shaderEnabled: { value: number };
   };
   uniforms?: {
     center: THREE.IUniform<THREE.Vector3>;
@@ -106,6 +107,7 @@ type CutoutMaterialState = {
     feather: THREE.IUniform<number>;
     visualize: THREE.IUniform<number>;
     translucentOpacity: THREE.IUniform<number>;
+    shaderEnabled: THREE.IUniform<number>;
   };
 };
 
@@ -127,6 +129,10 @@ export type FilterCutoutDebugState = {
    * When true, shader tints regions by cutout occlusion contribution.
    */
   visualizeOcclusion: boolean;
+  /**
+   * When true, keeps the cutout shader active for face pass-through.
+   */
+  shaderEnabled: boolean;
   /**
    * Optional translucent mesh opacity for tuning context.
    */
@@ -468,6 +474,7 @@ export function updateCutoutDebugState(
     return;
   }
   state.debug.visualize.value = debugState.visualizeOcclusion ? 1 : 0;
+  state.debug.shaderEnabled.value = debugState.shaderEnabled ? 1 : 0;
   state.debug.translucentOpacity.value = THREE.MathUtils.clamp(
     debugState.translucentMeshOpacity,
     0,
@@ -475,6 +482,7 @@ export function updateCutoutDebugState(
   );
   if (state.uniforms) {
     state.uniforms.visualize.value = state.debug.visualize.value;
+    state.uniforms.shaderEnabled.value = state.debug.shaderEnabled.value;
     state.uniforms.translucentOpacity.value = state.debug.translucentOpacity.value;
   }
 }
@@ -619,6 +627,7 @@ function createCutoutMaterialState(
     feather: { value: Math.max(MIN_CUTOUT_VALUE, cutout.feather) },
     debug: {
       visualize: { value: debugState?.visualizeOcclusion ? 1 : 0 },
+      shaderEnabled: { value: debugState?.shaderEnabled === false ? 0 : 1 },
       translucentOpacity: {
         value: debugState
           ? THREE.MathUtils.clamp(debugState.translucentMeshOpacity, 0, 1)
@@ -645,6 +654,9 @@ function attachCutoutUniforms(
   shader.uniforms.filterCutoutRadii = { value: state.radii };
   shader.uniforms.filterCutoutFeather = { value: state.feather.value };
   shader.uniforms.filterCutoutDebugVisualize = { value: state.debug.visualize.value };
+  shader.uniforms.filterCutoutShaderEnabled = {
+    value: state.debug.shaderEnabled.value,
+  };
   shader.uniforms.filterCutoutDebugMeshOpacity = {
     value: state.debug.translucentOpacity.value,
   };
@@ -653,6 +665,8 @@ function attachCutoutUniforms(
     radii: shader.uniforms.filterCutoutRadii as THREE.IUniform<THREE.Vector3>,
     feather: shader.uniforms.filterCutoutFeather as THREE.IUniform<number>,
     visualize: shader.uniforms.filterCutoutDebugVisualize as THREE.IUniform<number>,
+    shaderEnabled:
+      shader.uniforms.filterCutoutShaderEnabled as THREE.IUniform<number>,
     translucentOpacity:
       shader.uniforms.filterCutoutDebugMeshOpacity as THREE.IUniform<number>,
   };
@@ -703,6 +717,7 @@ function injectCutoutFragmentShader(fragmentShader: string): string {
         "uniform vec3 filterCutoutRadii;",
         "uniform float filterCutoutFeather;",
         "uniform float filterCutoutDebugVisualize;",
+        "uniform float filterCutoutShaderEnabled;",
         "uniform float filterCutoutDebugMeshOpacity;",
       ].join("\n"),
     )
@@ -712,15 +727,17 @@ function injectCutoutFragmentShader(fragmentShader: string): string {
         "vec3 filterOffset = (vFilterLocalPos - filterCutoutCenter) / filterCutoutRadii;",
         "float filterDist = length(filterOffset) - 1.0;",
         "float filterFade = smoothstep(-filterCutoutFeather, filterCutoutFeather, filterDist);",
-        "if (filterCutoutDebugVisualize > 0.5) {",
-        "  vec3 occlusionTint = mix(vec3(0.15, 0.95, 1.0), vec3(1.0, 0.35, 0.18), clamp(1.0 - filterFade, 0.0, 1.0));",
-        "  diffuseColor.rgb = mix(diffuseColor.rgb, occlusionTint, 0.65);",
+        "if (filterCutoutShaderEnabled > 0.5) {",
+        "  if (filterCutoutDebugVisualize > 0.5) {",
+        "    vec3 occlusionTint = mix(vec3(0.15, 0.95, 1.0), vec3(1.0, 0.35, 0.18), clamp(1.0 - filterFade, 0.0, 1.0));",
+        "    diffuseColor.rgb = mix(diffuseColor.rgb, occlusionTint, 0.65);",
+        "  }",
+        "  if (filterCutoutDebugMeshOpacity > 0.0) {",
+        "    diffuseColor.a = max(diffuseColor.a, filterCutoutDebugMeshOpacity);",
+        "  }",
+        "  diffuseColor.a *= filterFade;",
+        "  if (diffuseColor.a <= 0.001) discard;",
         "}",
-        "if (filterCutoutDebugMeshOpacity > 0.0) {",
-        "  diffuseColor.a = max(diffuseColor.a, filterCutoutDebugMeshOpacity);",
-        "}",
-        "diffuseColor.a *= filterFade;",
-        "if (diffuseColor.a <= 0.001) discard;",
         outputChunkToken,
       ].join("\n"),
     );
