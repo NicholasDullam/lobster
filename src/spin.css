@@ -1,0 +1,14 @@
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: radial-gradient(circle at top, #1d1f2b 0%, #0b0c12 70%);
+}
+
+#spin-canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
