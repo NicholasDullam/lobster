@@ -95,6 +95,23 @@ type FaceAnchor = {
 };
 
 /**
+ * Headwear anchor and debug points derived from forehead and temple landmarks.
+ */
+type HeadwearAnchor = {
+  ndcX: number;
+  ndcY: number;
+  templeDeltaNdcX: number;
+  templeDeltaNdcY: number;
+  templeWidth: number;
+  debug: {
+    leftTemple: { x: number; y: number; z: number };
+    rightTemple: { x: number; y: number; z: number };
+    forehead: { x: number; y: number; z: number };
+    crownPoint: { x: number; y: number; z: number };
+  };
+};
+
+/**
  * Debug overlay canvas and status UI nodes.
  */
 type DebugOverlay = {
@@ -142,6 +159,7 @@ export type {
   CutoutDebugEntry,
   DebugOverlay,
   FaceAnchor,
+  HeadwearAnchor,
   HeadRotation,
   PoseLandmark,
   PrimaryCutoutAnchor,

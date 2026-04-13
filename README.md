@@ -11,6 +11,19 @@ The approach here is a **hybrid tracking + local shader cutout pipeline**:
 
 This README explains the concepts behind that solution and how the system fits together.
 
+## GitHub Pages Hosting
+
+The repository is set up to publish a project site through GitHub Pages using
+`.github/workflows/deploy-pages.yml`.
+
+- Local development should continue to use `npm run dev`.
+- GitHub Pages builds should use `npm run build:pages`.
+- Public assets are resolved through Vite's base URL so `/models/...` and
+similar files still load when the site is hosted under `/obs-face-filter/`.
+- Hosted links should prefer query parameters such as `?model=bowling-hat` and
+`?sample=sample-1` instead of deep paths like `/samples/sample-1`, because
+GitHub Pages does not natively rewrite arbitrary route-like URLs.
+
 ## What Problem Is Being Solved
 
 The "lobster filter problem" in this repo is not just "attach a model to a person." It is a multi-part alignment problem:
@@ -39,6 +52,8 @@ flowchart TD
   I --> J[Material Profile + Local Cutout Shader]
   J --> K[Final Composite]
 ```
+
+
 
 Core idea: **pose gives stable body context**, **face gives precise face alignment**, and **cutout shader gives local pass-through**.
 
@@ -107,6 +122,8 @@ sequenceDiagram
   R->>R: apply local cutout shader
   R-->>S: rendered overlay frame
 ```
+
+
 
 Per-frame decisions are intentionally conservative to avoid visible jitter.
 

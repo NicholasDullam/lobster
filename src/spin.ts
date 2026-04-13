@@ -1,12 +1,28 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import "./spin.css";
+import { resolveModelConfig } from "./model-config";
+import {
+  attachModelDecorations,
+  type DecorationState,
+} from "./model-decorations";
 
-const MODEL_URL = "/models/filter.glb";
 const CAMERA_FOV = 45;
 const CAMERA_NEAR = 0.01;
 const CAMERA_FAR = 100;
 const SPIN_SPEED_RADIANS_PER_SECOND = 0.75;
+const activeModelConfig = resolveModelConfig(window.location.search);
+
+document.title = `${activeModelConfig.displayName} Model Spin Preview`;
+const metaDescription = document.querySelector<HTMLMetaElement>(
+  'meta[name="description"]',
+);
+if (metaDescription) {
+  metaDescription.setAttribute(
+    "content",
+    `Centered spinning preview of the ${activeModelConfig.displayName} face filter model.`,
+  );
+}
 
 const canvas = document.getElementById("spin-canvas");
 if (!(canvas instanceof HTMLCanvasElement)) {
@@ -43,9 +59,10 @@ scene.add(root);
 
 const clock = new THREE.Clock();
 const loader = new GLTFLoader();
+let updateDecorations = (_state: DecorationState): void => undefined;
 
 /**
- * Loads the filter model and places it so it rotates around its geometric center.
+ * Loads the active model and places it so it rotates around its geometric center.
  *
  * Computes bounds to recenter the mesh at origin, then positions the camera so
  * the entire model stays comfortably in frame.
@@ -53,7 +70,7 @@ const loader = new GLTFLoader();
  * @returns Promise that resolves after the model is loaded and framed
  */
 async function loadModel(): Promise<void> {
-  const gltf = await loader.loadAsync(MODEL_URL);
+  const gltf = await loader.loadAsync(activeModelConfig.modelUrl);
   const model = gltf.scene;
 
   const bounds = new THREE.Box3().setFromObject(model);
@@ -74,6 +91,9 @@ async function loadModel(): Promise<void> {
   camera.far = distance * 20;
   camera.updateProjectionMatrix();
 
+  updateDecorations =
+    attachModelDecorations(model, activeModelConfig, bounds) ??
+    (() => undefined);
   root.add(model);
 }
 
@@ -94,6 +114,10 @@ window.addEventListener("resize", handleResize);
 function animate(): void {
   const deltaSeconds = clock.getDelta();
   root.rotation.y += SPIN_SPEED_RADIANS_PER_SECOND * deltaSeconds;
+  updateDecorations({
+    elapsedSeconds: clock.elapsedTime,
+    upwardTiltAmount: 0,
+  });
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
@@ -103,5 +127,8 @@ loadModel()
     animate();
   })
   .catch((error: unknown) => {
-    console.error("Failed to load spin preview model:", error);
+    console.error(
+      `Failed to load ${activeModelConfig.displayName} spin preview model:`,
+      error,
+    );
   });

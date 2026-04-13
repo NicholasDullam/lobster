@@ -3,6 +3,7 @@ import {
   FilesetResolver,
   PoseLandmarker,
 } from "@mediapipe/tasks-vision";
+import { baseRelativePathname } from "./runtime-paths";
 import { SAMPLE_IMAGES, SAMPLE_ROUTE_PREFIX } from "./tracking-constants";
 import type { TrackingSource } from "./tracking-types";
 
@@ -80,8 +81,8 @@ async function setupFaceLandmarker(
 /**
  * Resolves sample-photo mode from the current URL path.
  *
- * Supports `/samples/<sample-id>` where sample-id is one of the configured
- * SAMPLE_IMAGES keys, and also supports `/?sample=<sample-id>`.
+ * Supports hosted-safe `/?sample=<sample-id>` links and also accepts
+ * `/samples/<sample-id>` when the current host can serve that pathname.
  *
  * @returns Sample id when route matches a configured sample, otherwise null
  */
@@ -91,7 +92,7 @@ function sampleIdFromRoute(): string | null {
     return querySampleId;
   }
 
-  const path = window.location.pathname;
+  const path = baseRelativePathname();
   if (!path.startsWith(SAMPLE_ROUTE_PREFIX)) {
     return null;
   }
@@ -117,8 +118,8 @@ async function loadImageSource(src: string): Promise<HTMLImageElement> {
 /**
  * Configures either live camera input or sample-photo test input from route.
  *
- * Sample routes (`/samples/<id>`) render the selected image behind the 3D canvas
- * and avoid requesting webcam permissions.
+ * Sample mode renders the selected image behind the 3D canvas and avoids
+ * requesting webcam permissions.
  *
  * @param video - Hidden video element used for camera mode
  * @returns Active tracking source configuration

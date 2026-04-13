@@ -140,7 +140,7 @@ export type FilterCutoutDebugState = {
 };
 
 /**
- * Runtime artifact structure loaded from `/models/filter-overrides.json`.
+ * Runtime artifact structure loaded from a model-specific overrides JSON file.
  *
  * Partial values are merged onto the default profile to allow lightweight
  * overrides without requiring all fields to be present.

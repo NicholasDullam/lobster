@@ -21,18 +21,10 @@ import type {
 } from "@mediapipe/tasks-vision";
 import {
   ANCHOR_WORLD_Z,
-  BODY_AUTO_CENTER_X,
-  BODY_OFFSET_X,
-  BODY_OFFSET_Y,
-  BODY_OFFSET_Z,
   BODY_POSITION_DEADBAND,
   BODY_POS_SMOOTH,
   BODY_ROTATION_DEADBAND_RAD,
-  BODY_ROTATION_OFFSET_X,
-  BODY_ROTATION_OFFSET_Y,
-  BODY_ROTATION_OFFSET_Z,
   BODY_ROT_SMOOTH,
-  BODY_SCALE_MULTIPLIER,
   BODY_SCALE_SMOOTH,
   DEBUG_ENABLED,
   FACE_ANCHOR_POSITION_BLEND_CAMERA,
@@ -52,9 +44,12 @@ import {
   FACE_SCALE_MIN,
   FACE_SCALE_MULTIPLIER,
   FACE_WINDOW_WIDTH_FROM_EYE_DISTANCE,
+  FM_FOREHEAD,
   FM_LEFT_EYE_OUTER,
+  FM_LEFT_TEMPLE,
   FM_NOSE_TIP,
   FM_RIGHT_EYE_OUTER,
+  FM_RIGHT_TEMPLE,
   HEAD_MAX_PITCH_DELTA_FROM_TORSO,
   HEAD_MAX_ROLL_DELTA_FROM_TORSO,
   HEAD_MAX_YAW_DELTA_FROM_TORSO,
@@ -71,8 +66,6 @@ import {
   LM_RIGHT_HIP,
   LM_RIGHT_SHOULDER,
   MIN_FACE_EYE_DISTANCE,
-  MODEL_OVERRIDES_URL,
-  MODEL_URL,
   POSE_LOST_HIDE_DELAY_MS,
   SAMPLE_SCALE_MULTIPLIER,
   SAMPLE_SCALE_MAX,
@@ -84,6 +77,8 @@ import {
   BODY_MIN_VISIBILITY,
   SYNTHETIC_TORSO_LENGTH_FROM_SHOULDERS,
 } from "./tracking-constants";
+import { resolveModelConfig, type ModelConfig } from "./model-config";
+import { attachModelDecorations } from "./model-decorations";
 import {
   setupFaceLandmarker,
   setupPoseLandmarker,
@@ -102,6 +97,7 @@ import type {
   CutoutDebugEntry,
   DebugOverlay,
   FaceAnchor,
+  HeadwearAnchor,
   PoseLandmark,
   PrimaryCutoutAnchor,
   ProjectionContext,
@@ -305,6 +301,179 @@ function resolvePrimaryCutoutAnchor(
     }
   });
   return resolvedAnchor;
+}
+
+/**
+ * Resolves model-space fit data for headwear placement using world bounds.
+ *
+ * The resolved offset identifies which point on the transformed model should
+ * contact the user's head. Width is taken from the configured bounds axis so
+ * scale can follow temple span instead of face-opening heuristics.
+ *
+ * @param anchor - Root tracking anchor that owns the model
+ * @param model - Loaded GLB scene root
+ * @param fit - Headwear fit configuration for the active model
+ * @returns Headwear model fit data, or null when bounds are empty
+ */
+function resolveHeadwearFitAnchor(
+  anchor: THREE.Object3D,
+  model: THREE.Object3D,
+  fit: NonNullable<ModelConfig["headwearFit"]>,
+): {
+  offset: THREE.Vector3;
+  referenceWidth: number;
+} | null {
+  model.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(model);
+  if (bounds.isEmpty()) {
+    return null;
+  }
+
+  const size = bounds.getSize(new THREE.Vector3());
+  const attachPointWorld = new THREE.Vector3(
+    bounds.min.x + size.x * fit.attachPointNormalized.x,
+    bounds.min.y + size.y * fit.attachPointNormalized.y,
+    bounds.min.z + size.z * fit.attachPointNormalized.z,
+  );
+
+  return {
+    offset: anchor.worldToLocal(attachPointWorld.clone()),
+    referenceWidth: Math.max(
+      fit.widthAxis === "x" ? size.x : size.z,
+      1e-4,
+    ),
+  };
+}
+
+/**
+ * Builds a crown-centered anchor for hats using forehead and temple landmarks.
+ *
+ * The horizontal center comes from the temple midpoint, while the vertical
+ * placement extends upward from the forehead so headwear follows the crown
+ * instead of the face opening.
+ *
+ * @param result - FaceLandmarker detection result for the current frame
+ * @param options - Mode-specific projection and scaling options
+ * @param crownLiftFromWidth - Crown lift measured in temple-width units
+ * @returns Headwear anchor data, or null when required landmarks are unavailable
+ */
+function headwearAnchorFromFace(
+  result: FaceLandmarkerResult,
+  options: TorsoAnchorOptions,
+  crownLiftFromWidth: number,
+): HeadwearAnchor | null {
+  const face = result.faceLandmarks[0];
+  if (!face) {
+    return null;
+  }
+
+  const leftTempleCandidate = face[FM_LEFT_TEMPLE];
+  const rightTempleCandidate = face[FM_RIGHT_TEMPLE];
+  const leftEye = face[FM_LEFT_EYE_OUTER];
+  const rightEye = face[FM_RIGHT_EYE_OUTER];
+  const forehead = face[FM_FOREHEAD];
+  if (
+    !leftTempleCandidate ||
+    !rightTempleCandidate ||
+    !leftEye ||
+    !rightEye ||
+    !forehead
+  ) {
+    return null;
+  }
+
+  const leftTemple =
+    leftTempleCandidate.x <= rightTempleCandidate.x
+      ? leftTempleCandidate
+      : rightTempleCandidate;
+  const rightTemple =
+    leftTempleCandidate.x <= rightTempleCandidate.x
+      ? rightTempleCandidate
+      : leftTempleCandidate;
+
+  const templeWidth = landmarkDistanceForScale(
+    rightTemple,
+    leftTemple,
+    options.projectionContext,
+  );
+  if (templeWidth < MIN_FACE_EYE_DISTANCE) {
+    return null;
+  }
+
+  const eyeMid = {
+    x: (leftEye.x + rightEye.x) * 0.5,
+    y: (leftEye.y + rightEye.y) * 0.5,
+  };
+  const templeMid = {
+    x: (leftTemple.x + rightTemple.x) * 0.5,
+    y: (leftTemple.y + rightTemple.y) * 0.5,
+  };
+  const headUpX = forehead.x - eyeMid.x;
+  const headUpY = forehead.y - eyeMid.y;
+  const headUpLength = Math.hypot(headUpX, headUpY);
+  const normalizedHeadUpX = headUpLength > 1e-4 ? headUpX / headUpLength : 0;
+  const normalizedHeadUpY = headUpLength > 1e-4 ? headUpY / headUpLength : -1;
+  const liftedForehead = {
+    x: forehead.x + normalizedHeadUpX * templeWidth * crownLiftFromWidth,
+    y: forehead.y + normalizedHeadUpY * templeWidth * crownLiftFromWidth,
+  };
+  const crownPoint = {
+    x: THREE.MathUtils.lerp(liftedForehead.x, templeMid.x, 0.65),
+    y: liftedForehead.y,
+  };
+
+  const leftTempleNdc = options.projectionContext
+    ? ndcFromLandmarkContained(leftTemple, options.projectionContext)
+    : ndcFromLandmark(leftTemple);
+  const rightTempleNdc = options.projectionContext
+    ? ndcFromLandmarkContained(rightTemple, options.projectionContext)
+    : ndcFromLandmark(rightTemple);
+  const { x: ndcX, y: ndcY } = options.projectionContext
+    ? ndcFromLandmarkContained(crownPoint, options.projectionContext)
+    : ndcFromLandmark(crownPoint);
+
+  const debugLeftTemple = options.projectionContext
+    ? viewportNormalizedFromLandmarkContained(leftTemple, options.projectionContext)
+    : { x: leftTemple.x, y: leftTemple.y };
+  const debugRightTemple = options.projectionContext
+    ? viewportNormalizedFromLandmarkContained(rightTemple, options.projectionContext)
+    : { x: rightTemple.x, y: rightTemple.y };
+  const debugForehead = options.projectionContext
+    ? viewportNormalizedFromLandmarkContained(forehead, options.projectionContext)
+    : { x: forehead.x, y: forehead.y };
+  const debugCrownPoint = options.projectionContext
+    ? viewportNormalizedFromLandmarkContained(crownPoint, options.projectionContext)
+    : crownPoint;
+
+  return {
+    ndcX,
+    ndcY,
+    templeDeltaNdcX: rightTempleNdc.x - leftTempleNdc.x,
+    templeDeltaNdcY: rightTempleNdc.y - leftTempleNdc.y,
+    templeWidth,
+    debug: {
+      leftTemple: {
+        x: debugLeftTemple.x,
+        y: debugLeftTemple.y,
+        z: leftTemple.z ?? 0,
+      },
+      rightTemple: {
+        x: debugRightTemple.x,
+        y: debugRightTemple.y,
+        z: rightTemple.z ?? 0,
+      },
+      forehead: {
+        x: debugForehead.x,
+        y: debugForehead.y,
+        z: forehead.z ?? 0,
+      },
+      crownPoint: {
+        x: debugCrownPoint.x,
+        y: debugCrownPoint.y,
+        z: 0,
+      },
+    },
+  };
 }
 
 /**
@@ -1228,7 +1397,7 @@ function blendAnchorRotation(
 }
 
 /**
- * Initializes tracking and render loop for the lobster face filter overlay.
+ * Initializes tracking and render loop for the active face filter model.
  *
  * @returns A promise that resolves when initial setup is complete
  */
@@ -1247,7 +1416,11 @@ async function main(): Promise<void> {
     trackingSource.mode === "camera" ? "VIDEO" : "IMAGE",
   );
   const queryParams = new URLSearchParams(window.location.search);
-  const filterArtifact = await loadProfileArtifact(MODEL_OVERRIDES_URL);
+  const activeModelConfig = resolveModelConfig(window.location.search);
+  const usesHeadwearPlacement = activeModelConfig.anchorMode === "headwear";
+  const filterArtifact = activeModelConfig.overridesUrl
+    ? await loadProfileArtifact(activeModelConfig.overridesUrl)
+    : null;
   const mergedFilterProfile = mergeProfileArtifact(
     DEFAULT_FILTER_MATERIAL_PROFILE,
     filterArtifact,
@@ -1289,7 +1462,7 @@ async function main(): Promise<void> {
     showFaceShader: queryParams.get("filterDebugFaceShader") !== "0",
   };
 
-  const gltf = await new GLTFLoader().loadAsync(MODEL_URL);
+  const gltf = await new GLTFLoader().loadAsync(activeModelConfig.modelUrl);
   const model = gltf.scene;
   if (queryParams.get("filterDumpMeshes") === "1") {
     dumpModelMeshCatalog(model);
@@ -1314,21 +1487,26 @@ async function main(): Promise<void> {
   if (showCutoutDebug) {
     cutoutDebugEntries.push(...addCutoutDebugHelpers(model, filterMaterialProfile));
   }
-  let centeredOffsetX = BODY_OFFSET_X;
-  if (BODY_AUTO_CENTER_X) {
-    const modelBounds = new THREE.Box3().setFromObject(model);
+  const baseModelBounds = new THREE.Box3().setFromObject(model);
+  const { bodyTransform } = activeModelConfig;
+  let centeredOffsetX = bodyTransform.offset.x;
+  if (bodyTransform.autoCenterX) {
     const modelCenter = new THREE.Vector3();
-    modelBounds.getCenter(modelCenter);
+    baseModelBounds.getCenter(modelCenter);
     centeredOffsetX -= modelCenter.x;
   }
   anchor.add(model);
-  model.position.set(centeredOffsetX, BODY_OFFSET_Y, BODY_OFFSET_Z);
-  model.rotation.set(
-    BODY_ROTATION_OFFSET_X,
-    BODY_ROTATION_OFFSET_Y,
-    BODY_ROTATION_OFFSET_Z,
+  model.position.set(
+    centeredOffsetX,
+    bodyTransform.offset.y,
+    bodyTransform.offset.z,
   );
-  model.scale.setScalar(BODY_SCALE_MULTIPLIER);
+  model.rotation.set(
+    bodyTransform.rotation.x,
+    bodyTransform.rotation.y,
+    bodyTransform.rotation.z,
+  );
+  model.scale.setScalar(bodyTransform.scaleMultiplier);
   scene.updateMatrixWorld(true);
   const primaryCutoutAnchor = resolvePrimaryCutoutAnchor(
     anchor,
@@ -1337,6 +1515,13 @@ async function main(): Promise<void> {
   );
   const primaryCutoutAnchorOffset = primaryCutoutAnchor?.offset ?? null;
   const primaryCutoutWindowWidth = primaryCutoutAnchor?.windowWidth ?? null;
+  const headwearFitAnchor =
+    usesHeadwearPlacement && activeModelConfig.headwearFit
+      ? resolveHeadwearFitAnchor(anchor, model, activeModelConfig.headwearFit)
+      : null;
+  const updateDecorations =
+    attachModelDecorations(model, activeModelConfig, baseModelBounds) ??
+    (() => undefined);
 
   const smoothedPos = new THREE.Vector3(0, 0, 0);
   const smoothedQuat = new THREE.Quaternion();
@@ -1494,6 +1679,17 @@ async function main(): Promise<void> {
       isSampleMode,
       projectionContext,
     });
+    const headwearAnchor =
+      usesHeadwearPlacement && activeModelConfig.headwearFit
+        ? headwearAnchorFromFace(
+            faceResult,
+            {
+              isSampleMode,
+              projectionContext,
+            },
+            activeModelConfig.headwearFit.crownLiftFromWidth,
+          )
+        : null;
     const headRotation = headRotationFromFace(faceResult);
     if (faceAnchor) {
       if (smoothedFaceEyeDistance === null) {
@@ -1530,27 +1726,41 @@ async function main(): Promise<void> {
       Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)) *
       anchorPlaneDistance;
     const anchorPlaneWidth = anchorPlaneHeight * camera.aspect;
+    const faceEyeWorldDistance = faceAnchor
+      ? (() => {
+          const rawEyeNdcDistance = Math.hypot(
+            faceAnchor.eyeDeltaNdcX,
+            faceAnchor.eyeDeltaNdcY,
+          );
+          const smoothedToRawRatio =
+            rawEyeNdcDistance > 1e-4
+              ? effectiveFaceEyeDistance / rawEyeNdcDistance
+              : 1;
+          const stabilizedEyeDeltaNdcX =
+            faceAnchor.eyeDeltaNdcX * smoothedToRawRatio;
+          const stabilizedEyeDeltaNdcY =
+            faceAnchor.eyeDeltaNdcY * smoothedToRawRatio;
+          return Math.hypot(
+            stabilizedEyeDeltaNdcX * (anchorPlaneWidth * 0.5),
+            stabilizedEyeDeltaNdcY * (anchorPlaneHeight * 0.5),
+          );
+        })()
+      : null;
+    const headwearTempleWorldDistance = headwearAnchor
+      ? Math.hypot(
+          headwearAnchor.templeDeltaNdcX * (anchorPlaneWidth * 0.5),
+          headwearAnchor.templeDeltaNdcY * (anchorPlaneHeight * 0.5),
+        )
+      : null;
     const geometryDrivenFaceScale =
-      isSampleMode && faceAnchor && primaryCutoutWindowWidth
+      isSampleMode &&
+      !usesHeadwearPlacement &&
+      faceAnchor &&
+      primaryCutoutWindowWidth &&
+      faceEyeWorldDistance !== null
         ? (() => {
-            const rawEyeNdcDistance = Math.hypot(
-              faceAnchor.eyeDeltaNdcX,
-              faceAnchor.eyeDeltaNdcY,
-            );
-            const smoothedToRawRatio =
-              rawEyeNdcDistance > 1e-4
-                ? effectiveFaceEyeDistance / rawEyeNdcDistance
-                : 1;
-            const stabilizedEyeDeltaNdcX =
-              faceAnchor.eyeDeltaNdcX * smoothedToRawRatio;
-            const stabilizedEyeDeltaNdcY =
-              faceAnchor.eyeDeltaNdcY * smoothedToRawRatio;
-            const eyeWorldDistance = Math.hypot(
-              stabilizedEyeDeltaNdcX * (anchorPlaneWidth * 0.5),
-              stabilizedEyeDeltaNdcY * (anchorPlaneHeight * 0.5),
-            );
             return THREE.MathUtils.clamp(
-              (eyeWorldDistance * FACE_WINDOW_WIDTH_FROM_EYE_DISTANCE) /
+              (faceEyeWorldDistance * FACE_WINDOW_WIDTH_FROM_EYE_DISTANCE) /
                 Math.max(primaryCutoutWindowWidth, 1e-4),
               FACE_SCALE_MIN,
               FACE_SCALE_MAX,
@@ -1558,7 +1768,7 @@ async function main(): Promise<void> {
           })()
         : null;
     const resolvedFaceScale = geometryDrivenFaceScale ?? stabilizedFaceScale;
-    if (torsoAnchor || faceAnchor) {
+    if (torsoAnchor || faceAnchor || headwearAnchor) {
       const positionBlendWeight =
         isSampleMode
           ? FACE_ANCHOR_POSITION_BLEND_SAMPLE
@@ -1568,7 +1778,9 @@ async function main(): Promise<void> {
           ? FACE_ANCHOR_SCALE_BLEND_SAMPLE
           : FACE_ANCHOR_SCALE_BLEND_CAMERA;
       const blendedNdcX =
-        isSampleMode && faceAnchor
+        usesHeadwearPlacement && headwearAnchor
+          ? headwearAnchor.ndcX
+          : isSampleMode && faceAnchor
           ? faceAnchor.ndcX
           : torsoAnchor && faceAnchor
           ? THREE.MathUtils.lerp(
@@ -1578,7 +1790,9 @@ async function main(): Promise<void> {
             )
           : (faceAnchor?.ndcX ?? torsoAnchor!.ndcX);
       const blendedNdcY =
-        isSampleMode && faceAnchor
+        usesHeadwearPlacement && headwearAnchor
+          ? headwearAnchor.ndcY
+          : isSampleMode && faceAnchor
           ? faceAnchor.ndcY
           : torsoAnchor && faceAnchor
           ? THREE.MathUtils.lerp(
@@ -1588,7 +1802,18 @@ async function main(): Promise<void> {
             )
           : (faceAnchor?.ndcY ?? torsoAnchor!.ndcY);
       const blendedScale =
-        torsoAnchor && faceAnchor
+        usesHeadwearPlacement &&
+        headwearAnchor &&
+        headwearFitAnchor &&
+        headwearTempleWorldDistance !== null &&
+        activeModelConfig.headwearFit
+          ? Math.max(
+              (headwearTempleWorldDistance *
+                activeModelConfig.headwearFit.headWidthMultiplier) /
+                headwearFitAnchor.referenceWidth,
+              0.05,
+            )
+          : torsoAnchor && faceAnchor
           ? Math.max(
               THREE.MathUtils.lerp(
                 torsoAnchor.scale,
@@ -1630,7 +1855,12 @@ async function main(): Promise<void> {
       const finalTargetScale = isSampleMode
         ? sampleBaseScale
         : blendedScale;
-      const anchorRotation = torsoAnchor
+      const anchorRotation =
+        usesHeadwearPlacement && headwearAnchor
+          ? headRotation
+            ? blendAnchorRotation(new THREE.Quaternion(), headRotation)
+            : new THREE.Quaternion()
+          : torsoAnchor
         ? blendAnchorRotation(torsoAnchor.rotation, headRotation)
         : headRotation
           ? blendAnchorRotation(new THREE.Quaternion(), headRotation)
@@ -1642,7 +1872,31 @@ async function main(): Promise<void> {
         ANCHOR_WORLD_Z,
       );
       let worldPos = baseWorldPos;
-      if (faceAnchor && primaryCutoutAnchorOffset) {
+      if (
+        usesHeadwearPlacement &&
+        headwearAnchor &&
+        headwearFitAnchor &&
+        headwearTempleWorldDistance !== null &&
+        activeModelConfig.headwearFit
+      ) {
+        const crownWorldPos = worldPointFromNdc(
+          camera,
+          headwearAnchor.ndcX,
+          headwearAnchor.ndcY,
+          ANCHOR_WORLD_Z,
+        );
+        const headwearOffsetWorld = headwearFitAnchor.offset
+          .clone()
+          .multiplyScalar(finalTargetScale)
+          .applyQuaternion(anchorRotation);
+        const depthInsetWorld = new THREE.Vector3(
+          0,
+          0,
+          -headwearTempleWorldDistance *
+            activeModelConfig.headwearFit.depthInsetFromWidth,
+        ).applyQuaternion(anchorRotation);
+        worldPos = crownWorldPos.sub(headwearOffsetWorld).add(depthInsetWorld);
+      } else if (faceAnchor && primaryCutoutAnchorOffset) {
         const faceWorldPos = worldPointFromNdc(
           camera,
           faceAnchor.ndcX,
@@ -1712,6 +1966,10 @@ async function main(): Promise<void> {
       );
     }
 
+    updateDecorations({
+      elapsedSeconds: now * 0.001,
+      upwardTiltAmount: Math.max(0, -(headRotation?.pitch ?? 0)),
+    });
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   };
@@ -1726,5 +1984,5 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error("Failed to start lobster face filter demo:", error);
+  console.error("Failed to start face filter demo:", error);
 });

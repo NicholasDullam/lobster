@@ -1,3 +1,5 @@
+import { baseRelativePathname, publicAssetUrl } from "./runtime-paths";
+
 const SAMPLE_ROUTE_PREFIX = "/samples/";
 
 /**
@@ -21,6 +23,11 @@ const LM_LEFT_HIP = 23;
 const LM_RIGHT_HIP = 24;
 
 /**
+ * Face landmark index for the upper forehead.
+ */
+const FM_FOREHEAD = 10;
+
+/**
  * Face landmark index for the nose tip.
  */
 const FM_NOSE_TIP = 1;
@@ -31,15 +38,19 @@ const FM_NOSE_TIP = 1;
 const FM_LEFT_EYE_OUTER = 33;
 
 /**
+ * Face landmark index near the left temple / side of the head.
+ */
+const FM_LEFT_TEMPLE = 234;
+
+/**
  * Face landmark index for the outer right eye corner.
  */
 const FM_RIGHT_EYE_OUTER = 263;
 
 /**
- * Runtime tuning and model resource URLs.
+ * Face landmark index near the right temple / side of the head.
  */
-const MODEL_URL = "/models/filter.glb";
-const MODEL_OVERRIDES_URL = "/models/filter-overrides.json";
+const FM_RIGHT_TEMPLE = 454;
 
 /**
  * Body anchor smoothing and visibility thresholds.
@@ -52,18 +63,7 @@ const BODY_ROTATION_DEADBAND_RAD = 0.02;
 const BODY_MIN_VISIBILITY = 0.55;
 const POSE_LOST_HIDE_DELAY_MS = 320;
 
-/**
- * Base body transform offsets for the model under the tracking anchor.
- */
-const BODY_SCALE_MULTIPLIER = 0.9;
-const BODY_OFFSET_X = -0.14;
-const BODY_OFFSET_Y = -0.41;
-const BODY_OFFSET_Z = 0;
-const BODY_ROTATION_OFFSET_X = Math.PI;
-const BODY_ROTATION_OFFSET_Y = Math.PI;
-const BODY_ROTATION_OFFSET_Z = Math.PI;
 const BODY_ROLL_FROM_SHOULDERS = 0.4;
-const BODY_AUTO_CENTER_X = true;
 
 /**
  * Head orientation blending controls.
@@ -122,9 +122,9 @@ const SAMPLE_SCALE_MAX = 1.15;
  * Sample images available for no-camera debug/test mode.
  */
 const SAMPLE_IMAGES: Record<string, string> = {
-  "sample-1": "/samples/sample-1.png",
-  "sample-2": "/samples/sample-2.png",
-  "sample-3": "/samples/sample-3.png",
+  "sample-1": publicAssetUrl("samples/sample-1.png"),
+  "sample-2": publicAssetUrl("samples/sample-2.png"),
+  "sample-3": publicAssetUrl("samples/sample-3.png"),
 };
 
 /**
@@ -132,24 +132,16 @@ const SAMPLE_IMAGES: Record<string, string> = {
  */
 const DEBUG_ENABLED =
   new URLSearchParams(window.location.search).get("debug") === "1" ||
-  window.location.pathname.startsWith(SAMPLE_ROUTE_PREFIX);
+  baseRelativePathname().startsWith(SAMPLE_ROUTE_PREFIX);
 
 export {
   ANCHOR_WORLD_Z,
-  BODY_AUTO_CENTER_X,
   BODY_MIN_VISIBILITY,
-  BODY_OFFSET_X,
-  BODY_OFFSET_Y,
-  BODY_OFFSET_Z,
   BODY_POSITION_DEADBAND,
   BODY_POS_SMOOTH,
   BODY_ROTATION_DEADBAND_RAD,
-  BODY_ROTATION_OFFSET_X,
-  BODY_ROTATION_OFFSET_Y,
-  BODY_ROTATION_OFFSET_Z,
   BODY_ROLL_FROM_SHOULDERS,
   BODY_ROT_SMOOTH,
-  BODY_SCALE_MULTIPLIER,
   BODY_SCALE_SMOOTH,
   CAMERA_SCALE_MAX,
   CAMERA_SCALE_MIN,
@@ -171,10 +163,13 @@ export {
   FACE_SCALE_MAX,
   FACE_SCALE_MIN,
   FACE_SCALE_MULTIPLIER,
+  FM_FOREHEAD,
   FACE_WINDOW_WIDTH_FROM_EYE_DISTANCE,
   FM_LEFT_EYE_OUTER,
+  FM_LEFT_TEMPLE,
   FM_NOSE_TIP,
   FM_RIGHT_EYE_OUTER,
+  FM_RIGHT_TEMPLE,
   HEAD_MAX_PITCH_DELTA_FROM_TORSO,
   HEAD_MAX_ROLL_DELTA_FROM_TORSO,
   HEAD_MAX_YAW_DELTA_FROM_TORSO,
@@ -191,8 +186,6 @@ export {
   LM_RIGHT_HIP,
   LM_RIGHT_SHOULDER,
   MIN_FACE_EYE_DISTANCE,
-  MODEL_OVERRIDES_URL,
-  MODEL_URL,
   POSE_LOST_HIDE_DELAY_MS,
   SAMPLE_IMAGES,
   SAMPLE_ROUTE_PREFIX,

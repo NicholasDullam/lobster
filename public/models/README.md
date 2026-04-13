@@ -1,9 +1,20 @@
-Place your filter model at:
+## Available model configurations
 
-- /models/filter.glb
+The app now supports multiple named model configurations through the
+`model` query parameter. Each configuration can define its own GLB asset,
+optional overrides JSON, and base fit transform.
 
-The app loads `/models/filter.glb` at runtime.
-Optional runtime overrides are loaded from `/models/filter-overrides.json`.
+- `lobster` (default): `/models/lobster.glb`
+- `bowling-hat`: `/models/bowling-hat.glb`
+
+The default lobster configuration also loads runtime material overrides from
+`/models/lobster-overrides.json`.
+
+Examples:
+
+- Main demo: `?model=lobster`
+- Main demo with bowling hat: `?model=bowling-hat`
+- Spin preview with bowling hat: `spin.html?model=bowling-hat`
 
 ## Runtime face-through tuning
 
@@ -15,7 +26,7 @@ Default profile behavior:
 - Applies stronger face-through settings to meshes/materials whose names match:
   `face|head|visor|window|opening|mask|hood`.
 - Applies non-global pass-through with local cutout windows configured in
-  `filter-overrides.json`.
+  `lobster-overrides.json`.
 
 ### Query parameter overrides
 
@@ -50,16 +61,23 @@ Optional targeted override:
 
 Example:
 
-`/samples/sample-2?filterDumpMeshes=1&filterCutoutMatcher=textured_meshobj|pbr_material&filterCutoutCenter=0.02,0.5,0.2&filterCutoutRadii=0.16,0.16,0.17&filterCutoutFeather=0.2`
+`?sample=sample-2&filterDumpMeshes=1&filterCutoutMatcher=textured_meshobj|pbr_material&filterCutoutCenter=0.02,0.5,0.2&filterCutoutRadii=0.16,0.16,0.17&filterCutoutFeather=0.2`
 
 ### Recommended workflow
 
-1. Start with `/samples/sample-1`, `/samples/sample-2`, `/samples/sample-3`.
+1. Start with `?sample=sample-1`, `?sample=sample-2`, `?sample=sample-3`.
 2. Open once with `filterDumpMeshes=1` and collect exact mesh/material names.
-3. Tune `cutouts` in `filter-overrides.json` first for non-global pass-through.
+3. Tune the selected model's overrides JSON first for non-global pass-through.
 4. Use query params for live tuning, then copy final values back to JSON.
 5. If depth popping appears, test `filterTargetDepthWrite=false`.
 6. Keep one shared setting set that looks acceptable across all sample routes.
 
 If runtime tuning is still not enough for desired quality, move to a model
 authoring pass (geometry cutout and/or alpha mask in the GLB).
+
+## GitHub Pages note
+
+Hosted GitHub Pages links should prefer query parameters over deep sample paths.
+`?sample=sample-1` works on both local Vite and Pages, while `/samples/sample-1`
+requires a host-specific route fallback that GitHub Pages does not provide by
+default.
